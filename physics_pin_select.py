@@ -11,6 +11,7 @@ bl_info = {
     }
 
 import bpy
+from bpy.app.handlers import persistent
 
 class SPACE_OT_pin_physics_object(bpy.types.Operator):
     bl_label = "Pin Physics Object"
@@ -51,6 +52,7 @@ def has_physics(obj):
             return True
     return False
 
+@persistent
 def upd_handler(scene):
     oldpin = scene.physics_pin_object
     pinstr = ""
