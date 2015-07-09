@@ -15,6 +15,7 @@ from bpy.app.handlers import persistent
 
 class SPACE_OT_pin_physics_object(bpy.types.Operator):
     bl_label = "Pin Physics Object"
+    bl_description = "Pin panel to the selected object"
     bl_idname = "space.pin_physics_object"
     bl_options = {'INTERNAL'}
 
@@ -89,7 +90,7 @@ def register():
     bpy.utils.register_class(SPACE_OT_pin_physics_object)
     #bpy.utils.register_class(SPACE_OT_unpin_object)
     bpy.utils.register_class(PHYSICS_PT_pin_physics_object)
-    bpy.types.Scene.physics_pin_object = bpy.props.StringProperty(options={'HIDDEN','SKIP_SAVE'})
+    bpy.types.Scene.physics_pin_object = bpy.props.StringProperty(description='Choose an object with physics cache',options={'HIDDEN','SKIP_SAVE'})
     bpy.types.Scene.physics_pin_object_list = bpy.props.CollectionProperty(type=bpy.types.PropertyGroup, options={'HIDDEN','SKIP_SAVE'})
     bpy.app.handlers.scene_update_post.append(upd_handler)
 
