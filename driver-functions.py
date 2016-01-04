@@ -3,65 +3,106 @@ import math
 
 # Soft MIN/MAX functions
 
-def softmax_powercoeff(radius,limit):
+def softmax_power_solve(radius,limit):
     """
     Iteratively solves for a power coefficient that produces target deviation at radius.
     """
     def delta(coeff):
         return math.log1p(math.exp(-coeff*radius))/coeff
+    def deriv(dv,coeff):
+        return -(dv + radius/(1+math.exp(coeff*radius)))/coeff
 
-    if limit >= 1:
-        limit = math.pow(10, -limit)
+    # Find a starting point to the left of the root
+    val = 1
+    if delta(val) >= limit:
+        while delta(2*val) >= limit:
+            val = val * 2
+    else:
+        while delta(val) < limit:
+            val = val / 2
 
-    right = 1
-    while delta(right) > limit:
-        right = right * 2
-    if right < 2:
-        return right
+    # Narrow down with binsearch on the far right side
+    if val >= 2:
+        right = val*2
+        while (right-val) > 1:
+            mid = (val+right)/2
+            dv = delta(mid)
+            #print(mid,dv)
 
-    left = right / 2
+            if dv < limit:
+                right = mid
+            else:
+                val = mid
+
+    # Use Newton's method: with an always positive second derivative
+    # and starting to the left of the root, it should always converge
     while True:
-        mid = (left+right)/2
-        dv = delta(mid)
-        #print(mid,dv,dv/limit)
+        dv = delta(val)
+        dvv = deriv(dv, val)
+        dx = -(dv-limit)/dvv
+        #print(val,dv,dvv,dx)
 
-        if dv > limit:
-            left = mid
-        elif dv/limit > 0.999:
-            return mid
-        else:
-            right = mid
+        val = val + dx
+        if abs(dv/limit-1) < 1e-6:
+            return val
 
-softmax_coeff_table = {} # cache table for softmax_powercoeff results
+#print(softmax_power_solve(1.0,1e-6))
 
-def softmax(x,y,radius=1.0,digits=2):
+logn_2 = math.log(2)
+softmax_coeff_table = {} # cache table
+
+def softmax_power(radius,limit):
     """
-    Implements a maximum like function with smoothed out corner.
-    At abs(x-y)=radius overshoots by digits<1 ? digits : 10^-digits.
-    The radius and digits parameters are expected to be constants.
+    Finds the power coefficient that matches radius & limit using cache or computation.
     """
-    if radius < 0 or digits <= 0:
-        raise ValueError("invalid radius or digits")
+
+    if radius < 0:
+        raise ValueError("negative softmax radius")
+    if limit <= 0:
+        raise ValueError("non-positive softmax limit")
+
+    # Easy special case
+    if radius == 0:
+        return logn_2/limit
 
     try:
-        ctab = softmax_coeff_table[digits]
+        ctab = softmax_coeff_table[limit]
     except KeyError:
-        ctab = softmax_coeff_table[digits] = {}
+        ctab = softmax_coeff_table[limit] = {}
 
     try:
-        power = ctab[radius]
+        return ctab[radius]
     except KeyError:
-        power = ctab[radius] = softmax_powercoeff(radius, digits)
+        val = ctab[radius] = softmax_power_solve(radius, limit)
+        return val
 
+def softmaxp(x,y,power):
+    """
+    A maximum like function with smoothed out corner.
+    """
     return max(x,y) + math.log1p(math.exp(-power*abs(x-y)))/power
 
-def softmin(x,y,radius=1.0,digits=2):
+def softmax(x,y,radius=1.0,limit=0.01):
     """
-    Implements a minimum like function with smoothed out corner.
-    At abs(x-y)=radius undershoots by digits<1 ? digits : 10^-digits.
-    The radius and digits parameters are expected to be constants.
+    A maximum like function with smoothed out corner.
+    At abs(x-y)=radius overshoots by limit.
     """
-    return -softmax(-x,-y,radius,digits)
+    return softmaxp(x,y,softmax_power(radius,limit))
 
+def softminp(x,y,power):
+    """
+    A minimum like function with smoothed out corner.
+    """
+    return min(x,y) - math.log1p(math.exp(-power*abs(x-y)))/power
+
+def softmin(x,y,radius=1.0,limit=0.01):
+    """
+    A minimum like function with smoothed out corner.
+    At abs(x-y)=radius undershoots by limit.
+    """
+    return softminp(x,y,softmax_power(radius,limit))
+
+bpy.app.driver_namespace['softmaxp'] = softmaxp
 bpy.app.driver_namespace['softmax'] = softmax
+bpy.app.driver_namespace['softminp'] = softminp
 bpy.app.driver_namespace['softmin'] = softmin
