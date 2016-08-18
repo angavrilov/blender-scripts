@@ -1,0 +1,58 @@
+#!/bin/bash
+
+BLEND_PROGRAM=`readlink $0`.bin
+
+WORKDIR="$1"
+OUT_CACHE="$2"
+IN_CACHE="$3"
+START_FRAME=$4
+BLEND_START=$5
+END_FRAME=$6
+
+if [ -z "$1" -o -z "$2" -o -z "$3" -o -z "$4" -o -z "$5" -o -z "$6" ]; then
+    echo "Usage: $0 cachedir out-cachename/id in-cachename/id start blend-start end"
+    exit 1
+fi
+
+OUT_CACHE_NAME=`dirname "$OUT_CACHE"`
+OUT_CACHE_ID=`basename "$OUT_CACHE"`
+IN_CACHE_NAME=`dirname "$IN_CACHE"`
+IN_CACHE_ID=`basename "$IN_CACHE"`
+
+IN_CACHE_PATTERN=`printf '%s_??????_%02d.vdb' "$IN_CACHE_NAME" "$IN_CACHE_ID"`
+OUT_CACHE_PATTERN=`printf '%s_??????_%02d.vdb' "$OUT_CACHE_NAME" "$OUT_CACHE_ID"`
+
+if [ "$(echo $IN_CACHE_PATTERN)" == "$IN_CACHE_PATTERN" ]; then
+    echo "Can't find any input files: $IN_CACHE_PATTERN"
+    exit 1
+fi
+
+rm -f $OUT_CACHE_PATTERN
+
+for ((frame = 1; frame <= END_FRAME; frame++)); do
+    IN_FILE_NAME=`printf '%s_%06d_%02d.vdb' "$IN_CACHE_NAME" $frame "$IN_CACHE_ID"`
+    OUT_FILE_NAME=`printf '%s_%06d_%02d.vdb' "$OUT_CACHE_NAME" $frame "$OUT_CACHE_ID"`
+
+    if [ -f "$IN_FILE_NAME" ]; then
+        if [ $frame -gt $BLEND_START ]; then
+            blend_frame=$((frame - END_FRAME + START_FRAME))
+            BLEND_FILE_NAME=`printf '%s_%06d_%02d.vdb' "$IN_CACHE_NAME" $blend_frame "$IN_CACHE_ID"`
+
+            if [ ! -f "$BLEND_FILE_NAME" ]; then
+                echo "Blend file $BLEND_FILE_NAME not found."
+                ln -s "$IN_FILE_NAME" "$OUT_FILE_NAME"
+            elif [ $frame -ge $END_FRAME ]; then
+                ln -s "$BLEND_FILE_NAME" "$OUT_FILE_NAME"
+            else
+                factor=$(echo "scale=4; ($frame - $BLEND_START)/($END_FRAME - $BLEND_START)"|bc)
+
+                if ! "$BLEND_PROGRAM" "$OUT_FILE_NAME" "$IN_FILE_NAME" "$BLEND_FILE_NAME" $factor; then
+                    echo "Blending $OUT_FILE_NAME failed."
+                    ln -s "$IN_FILE_NAME" "$OUT_FILE_NAME"
+                fi
+            fi
+        else
+            ln -s "$IN_FILE_NAME" "$OUT_FILE_NAME"
+        fi
+    fi
+done
