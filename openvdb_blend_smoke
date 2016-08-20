@@ -22,6 +22,11 @@ IN_CACHE_ID=`basename "$IN_CACHE"`
 IN_CACHE_PATTERN=`printf '%s_??????_%02d.vdb' "$IN_CACHE_NAME" "$IN_CACHE_ID"`
 OUT_CACHE_PATTERN=`printf '%s_??????_%02d.vdb' "$OUT_CACHE_NAME" "$OUT_CACHE_ID"`
 
+if ! cd "$WORKDIR"; then
+    echo "Can't change directory to $WORKDIR"
+    exit 1
+fi
+
 if [ "$(echo $IN_CACHE_PATTERN)" == "$IN_CACHE_PATTERN" ]; then
     echo "Can't find any input files: $IN_CACHE_PATTERN"
     exit 1
