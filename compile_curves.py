@@ -10,6 +10,31 @@ bl_info = {
     "category": "Node",
     }
 
+'''
+
+Implements an operator that bakes a python expression contained in
+the curves node label to curve points. F6 menu allows changing the
+number of points or toggle bezier vs linear mode.
+
+The label may be either one expression to specify a common transform,
+or multiple '|' separated expressions for the individual curves.
+
+The expressions access the input (horizontal axis) value as 'x',
+and may also refer to each other, provided there are no cycles.
+
+RGB Curves:
+
+C
+R | G | B
+C | R | G | B
+
+Vector Curves:
+
+XYZ
+X | Y | Z
+
+'''
+
 import bpy
 
 def get_active_node(context):
@@ -20,54 +45,88 @@ def get_active_node(context):
 
     return None
 
-def clear_curve(curve, reset=True):
+# Set curve data
+
+def apply_curve(curve, xlist, ylist, mode='AUTO'):
     while len(curve.points) > 2:
         curve.points.remove(curve.points[2])
 
-    if reset:
-        curve.points[0].location = (0.0, 0.0)
-        curve.points[1].location = (1.0, 1.0)
-
-def generate_curve(curve, min_x, max_x, expr, count, mode='AUTO'):
-    global_map = bpy.app.driver_namespace
-
-    clear_curve(curve, False)
-
-    try:
-        v1 = float(eval(expr, global_map, {'x': min_x}))
-    except:
-        return None
-
-    curve.points[0].location = (min_x, v1)
+    curve.points[0].location = (xlist[0], ylist[0])
     curve.points[0].handle_type = mode
 
-    try:
-        v2 = float(eval(expr, global_map, {'x': max_x}))
-    except:
-        return None
-
-    curve.points[1].location = (max_x, v2)
+    curve.points[1].location = (xlist[1], ylist[1])
     curve.points[1].handle_type = mode
 
-    scale = (max_x - min_x) / (count-1)
-    min_y = min(v1, v2)
-    max_y = max(v1, v2)
-
-    for i in range(1,count-1):
-        x = min_x + scale * i
-
-        try:
-            y = float(eval(expr, global_map, {'x': x}))
-        except:
-            return None
-
-        min_y = min(min_y, y)
-        max_y = max(max_y, y)
-
-        pt = curve.points.new(x, y)
+    for i in range(2, len(xlist)):
+        pt = curve.points.new(xlist[i], ylist[i])
         pt.handle_type = mode
 
-    return (min_y, max_y)
+# Compute data
+
+def generate_x_list(min_x, max_x, count):
+    return [ min_x + i*(max_x-min_x) / (count-1) for i in range(0,count) ]
+
+def generate_expr_data(expr, count, inputs):
+    global_map = bpy.app.driver_namespace
+
+    def evalfn(i):
+        locmap = { k:v[i] for k,v in inputs.items() }
+        return float(eval(expr, global_map, locmap))
+
+    return [ evalfn(i) for i in range(0,count) ]
+
+# Compute curve values in dependency order
+
+def evaluate_curves(op, count, min_x, max_x, label, invar, shapes):
+    # Split sub-expressions
+    exprs = label.split('|')
+
+    if len(exprs) not in shapes:
+        op.report({'ERROR_INVALID_INPUT'}, "Invalid number of expressions in node label.")
+        return None
+
+    # Compile expressions
+    expr_table = {}
+    shape = shapes[len(exprs)]
+
+    for i,expr in enumerate(exprs):
+        try:
+            expr_table[shape[i]] = compile(expr, '<expr>', 'eval')
+        except SyntaxError:
+            op.report({'ERROR_INVALID_INPUT'}, "Invalid python expression in node label.")
+            return None
+
+    # Evaluate in dependency order
+    results = {}
+    results[invar] = generate_x_list(min_x, max_x, count)
+
+    min_y, max_y = None, None
+
+    while len(expr_table) > 0:
+        for eid, expr in expr_table.items():
+            unresolved = [ ids for ids in expr.co_names if ids in expr_table ]
+            if unresolved == []:
+                try:
+                    earr = generate_expr_data(expr, count, results)
+                except Exception as e:
+                    op.report({'ERROR_INVALID_INPUT'}, "Error evaluating the python expression for %s in node label: %s." % (eid, e))
+                    return None
+
+                results[eid] = earr
+                del expr_table[eid]
+
+                if min_y is None:
+                    min_y, max_y = min(earr), max(earr)
+                else:
+                    min_y, max_y = min(min_y, min(earr)), max(max_y, max(earr))
+
+                break
+        else:
+            op.report({'ERROR_INVALID_INPUT'}, "Circular dependency between sub-expressions in node label.")
+            return None
+
+    return results, min_y, max_y
+
 
 class NODE_OT_bake_expression_to_curves(bpy.types.Operator):
     """Generate curve points from label interpreted as expression."""
@@ -81,38 +140,45 @@ class NODE_OT_bake_expression_to_curves(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         node = get_active_node(context)
-        return node and node.type == "CURVE_RGB"
+        return node and (node.type == "CURVE_RGB" or node.type == "CURVE_VEC")
 
     def execute(self, context):
         node = get_active_node(context)
-
-        try:
-            codefn = compile(node.label, '<expr>', 'eval')
-        except SyntaxError:
-            self.report({'ERROR_INVALID_INPUT'}, "Invalid python expression in node label.")
-            return {'CANCELLED'}
-
-        mode = 'AUTO' if self.use_bezier else 'VECTOR'
-
         mapping = node.mapping
         min_x = mapping.clip_min_x
         max_x = mapping.clip_max_x
 
-        mapping.use_clip = False
+        # Compute curve values
+        if node.type == "CURVE_VEC":
+            shapes = { 1: ['XYZ'], 3: ['X','Y','Z'] }
+            curvenames = ['X','Y','Z']
+        else:
+            shapes = { 1: ['C'], 3: ['R','G','B'], 4: ['C','R','G','B'] }
+            curvenames = ['R','G','B','C']
 
-        for i in range(0,3):
-            clear_curve(mapping.curves[i])
+        curve_data = evaluate_curves(self, self.num_points, min_x, max_x, node.label, 'x', shapes)
 
-        minmax = generate_curve(mapping.curves[3], min_x, max_x, codefn, self.num_points, mode)
-
-        if minmax is None:
-            self.report({'ERROR_INVALID_INPUT'}, "Error evaluating the python expression in node label.")
+        if curve_data is None:
             return {'CANCELLED'}
 
-        mapping.clip_min_y, mapping.clip_max_y = minmax
-        mapping.use_clip = True
+        # Apply values to node data
+        curve_vals, mapping.clip_min_y, mapping.clip_max_y = curve_data
+        xvec = curve_vals['x']
+        fallback = curve_vals.get('XYZ')
 
+        mode = 'AUTO' if self.use_bezier else 'VECTOR'
+
+        for i,v in enumerate(curvenames):
+            if v in curve_vals:
+                apply_curve(mapping.curves[i], xvec, curve_vals[v], mode)
+            elif fallback:
+                apply_curve(mapping.curves[i], xvec, fallback, mode)
+            else:
+                apply_curve(mapping.curves[i], [0.0, 1.0], [0.0, 1.0], mode)
+
+        # Update mapping, UI and force shader refresh
         mapping.update()
+        node.width = node.width
         context.space_data.node_tree.update_tag()
 
         return {'FINISHED'}
