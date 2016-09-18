@@ -36,6 +36,8 @@ X | Y | Z
 '''
 
 import bpy
+import operator
+import math
 
 def get_active_node(context):
     space = context.space_data
@@ -183,6 +185,82 @@ class NODE_OT_bake_expression_to_curves(bpy.types.Operator):
 
         return {'FINISHED'}
 
+def sqdist_metric(a,b):
+    d = (a[0]-b[0], a[1]-b[1], a[2]-b[2], a[3]-b[3])
+    return d[0]*d[0] + d[1]*d[1] + d[2]*d[2] + d[3]*d[3]
+
+class NODE_OT_bake_expression_to_ramp(bpy.types.Operator):
+    """Generate color ramp points from label interpreted as expression."""
+    bl_idname = "node.bake_expression_to_ramp"
+    bl_label = "Bake Expression to Ramp"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        node = get_active_node(context)
+        return node and node.type == "VALTORGB"
+
+    def execute(self, context):
+        node = get_active_node(context)
+        ramp = node.color_ramp
+
+        shapes = { 1: ['C'], 2: ['C','A'], 4: ['R','G','B','A'] }
+        curve_data = evaluate_curves(self, 256, 0.0, 1.0, node.label, 'x', shapes)
+
+        if curve_data is None:
+            return {'CANCELLED'}
+
+        # Compute target colors
+        curve_vals, min_y, max_y = curve_data
+
+        curve_c = curve_vals.get('C')
+        curve_r = curve_vals.get('R', curve_c)
+        curve_g = curve_vals.get('G', curve_c)
+        curve_b = curve_vals.get('B', curve_c)
+        curve_a = curve_vals.get('A', curve_c)
+
+        xvec = curve_vals['x']
+        cvec = [(curve_r[i], curve_g[i], curve_b[i], curve_a[i]) for i in range(0,len(xvec))]
+
+        # Apply edge values
+        while len(ramp.elements) > 2:
+            ramp.elements.remove(ramp.elements[2])
+
+        ramp.elements[0].position = xvec[0]
+        ramp.elements[0].color = cvec[0]
+        xvec[0] = None
+
+        ramp.elements[1].position = xvec[-1]
+        ramp.elements[1].color = cvec[-1]
+        xvec[-1] = None
+
+        # Apply midpoints
+        while True:
+            max_delta = -1.0
+            max_i = None
+
+            for i,x in enumerate(xvec):
+                if x is not None:
+                    delta_val = sqdist_metric(cvec[i], ramp.evaluate(x))
+
+                    if delta_val > max_delta:
+                        max_delta = delta_val
+                        max_i = i
+
+            if len(ramp.elements) >= 32 or max_delta <= 0.000001:
+                self.report({'INFO'}, 'Max remaining error: %f' % (math.sqrt(max_delta)))
+                break
+
+            pt = ramp.elements.new(xvec[max_i])
+            pt.color = cvec[max_i]
+            xvec[max_i] = None
+
+        # Update UI and force shader refresh
+        node.width = node.width
+        context.space_data.node_tree.update_tag()
+
+        return {'FINISHED'}
+
 
 class NODE_MT_bake_expression_to_curves_help(bpy.types.Menu):
     bl_description = "Help"
@@ -193,14 +271,25 @@ class NODE_MT_bake_expression_to_curves_help(bpy.types.Menu):
         layout = self.layout
         node = get_active_node(context)
 
-        layout.label("Bakes a python expression in node label to curve points.")
-        layout.label("Set input range via Min X and Max X in Clipping Options.")
-        layout.label("Use F6 menu to set the number of points or toggle bezier.")
+        if node.type == "VALTORGB":
+            layout.label("Bakes a python expression in node label to ramp points.")
+            layout.label("The range is fixed to 0-1, and point count limited to 32.")
+        else:
+            layout.label("Bakes a python expression in node label to curve points.")
+            layout.label("Set input range via Min X and Max X in Clipping Options.")
+            layout.label("Use F6 menu to set the number of points or toggle bezier.")
+
         layout.separator()
         layout.label("The label may contain multiple '|' separated expressions.")
         layout.label("It can use any python functions accessible in drivers.")
 
         if node.type == "CURVE_VEC":
+            layout.label("Access input as x or other sub-curves as C,R,G,B,A:")
+            layout.separator()
+            layout.label("C")
+            layout.label("C | A")
+            layout.label("R | G | B | A")
+        elif node.type == "CURVE_VEC":
             layout.label("Access input as x or other sub-curves as X,Y,Z:")
             layout.separator()
             layout.label("XYZ")
@@ -217,7 +306,13 @@ def panel_func(self, context):
     layout = self.layout
     node = get_active_node(context)
 
-    if node and node.type in {"CURVE_RGB", "CURVE_VEC"}:
+    if node and node.type == 'VALTORGB':
+        layout.separator()
+        row = layout.split(percentage=0.63)
+        row.column().operator(NODE_OT_bake_expression_to_ramp.bl_idname, text="Bake Expression")
+        row.column().menu("NODE_MT_bake_expression_to_curves_help", icon="INFO")
+
+    elif node and node.type in {"CURVE_RGB", "CURVE_VEC"}:
         layout.separator()
         row = layout.split(percentage=0.63)
         row.column().operator(NODE_OT_bake_expression_to_curves.bl_idname, text="Bake Expression")
@@ -226,6 +321,7 @@ def panel_func(self, context):
 
 def register():
     bpy.utils.register_class(NODE_OT_bake_expression_to_curves)
+    bpy.utils.register_class(NODE_OT_bake_expression_to_ramp)
     bpy.utils.register_class(NODE_MT_bake_expression_to_curves_help)
 
     if bpy.types.NODE_PT_active_node_generic:
@@ -233,6 +329,7 @@ def register():
 
 def unregister():
     bpy.utils.unregister_class(NODE_OT_bake_expression_to_curves)
+    bpy.utils.unregister_class(NODE_OT_bake_expression_to_ramp)
     bpy.utils.unregister_class(NODE_MT_bake_expression_to_curves_help)
 
     if bpy.types.NODE_PT_active_node_generic:
