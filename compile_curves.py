@@ -283,7 +283,7 @@ class NODE_MT_bake_expression_to_curves_help(bpy.types.Menu):
         layout.label("The label may contain multiple '|' separated expressions.")
         layout.label("It can use any python functions accessible in drivers.")
 
-        if node.type == "CURVE_VEC":
+        if node.type == "VALTORGB":
             layout.label("Access input as x or other sub-curves as C,R,G,B,A:")
             layout.separator()
             layout.label("C")
