@@ -3,8 +3,8 @@ bl_info = {
     "author": "angavrilov",
     "version": (1, 0),
     "blender": (2, 78, 0),
-    "location": "Select a Curves Node -> Search for Operator",
-    "description": "Operator to generate points of a curves node from a python math expression.",
+    "location": "Select a Curves Node -> Panel containing the Label property",
+    "description": "Operator to generate points of a curves node from a python math expression in node label.",
     "warning": "",
     "wiki_url": "",
     "category": "Node",
@@ -184,11 +184,59 @@ class NODE_OT_bake_expression_to_curves(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class NODE_MT_bake_expression_to_curves_help(bpy.types.Menu):
+    bl_description = "Help"
+    bl_label = "Help"
+    bl_options = {'REGISTER'}
+
+    def draw(self, context):
+        layout = self.layout
+        node = get_active_node(context)
+
+        layout.label("Bakes a python expression in node label to curve points.")
+        layout.label("Set input range via Min X and Max X in Clipping Options.")
+        layout.label("Use F6 menu to set the number of points or toggle bezier.")
+        layout.separator()
+        layout.label("The label may contain multiple '|' separated expressions.")
+        layout.label("It can use any python functions accessible in drivers.")
+
+        if node.type == "CURVE_VEC":
+            layout.label("Access input as x or other sub-curves as X,Y,Z:")
+            layout.separator()
+            layout.label("XYZ")
+            layout.label("X | Y | Z")
+        else:
+            layout.label("Access input as x or other sub-curves as C,R,G,B:")
+            layout.separator()
+            layout.label("C")
+            layout.label("R | G | B")
+            layout.label("C | R | G | B")
+
+
+def panel_func(self, context):
+    layout = self.layout
+    node = get_active_node(context)
+
+    if node and node.type in {"CURVE_RGB", "CURVE_VEC"}:
+        layout.separator()
+        row = layout.split(percentage=0.63)
+        row.column().operator(NODE_OT_bake_expression_to_curves.bl_idname, text="Bake Expression")
+        row.column().menu("NODE_MT_bake_expression_to_curves_help", icon="INFO")
+
+
 def register():
     bpy.utils.register_class(NODE_OT_bake_expression_to_curves)
+    bpy.utils.register_class(NODE_MT_bake_expression_to_curves_help)
+
+    if bpy.types.NODE_PT_active_node_generic:
+        bpy.types.NODE_PT_active_node_generic.append(panel_func)
 
 def unregister():
     bpy.utils.unregister_class(NODE_OT_bake_expression_to_curves)
+    bpy.utils.unregister_class(NODE_MT_bake_expression_to_curves_help)
+
+    if bpy.types.NODE_PT_active_node_generic:
+        bpy.types.NODE_PT_active_node_generic.remove(panel_func)
 
 if __name__ == "__main__":
     register()
