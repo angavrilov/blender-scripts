@@ -12,6 +12,7 @@ bl_info = {
 
 import bpy
 from bpy.app.handlers import persistent
+from bpy.types import ClothModifier, SoftBodyModifier, DynamicPaintModifier, SmokeModifier
 
 class SPACE_OT_pin_physics_object(bpy.types.Operator):
     bl_label = "Pin Physics Object"
@@ -46,15 +47,22 @@ def has_physics(obj):
     if len(obj.particle_systems) > 0:
         return True
     for mod in obj.modifiers:
-        if (isinstance(mod, bpy.types.ClothModifier) or
-            isinstance(mod, bpy.types.SoftBodyModifier) or
-            isinstance(mod, bpy.types.DynamicPaintModifier) or
-            isinstance(mod, bpy.types.SmokeModifier)):
+        if (isinstance(mod, ClothModifier) or
+            isinstance(mod, SoftBodyModifier) or
+            isinstance(mod, DynamicPaintModifier) or
+            isinstance(mod, SmokeModifier)):
             return True
     return False
 
+update_counter = 0
+
 @persistent
 def upd_handler(scene):
+    global update_counter
+    update_counter += 1
+    if update_counter < 100:
+        return
+    update_counter = 0
     oldpin = scene.physics_pin_object
     pinstr = ""
     scene.physics_pin_object_list.clear()
@@ -65,6 +73,11 @@ def upd_handler(scene):
             if (pinstr == "" or ob.name == oldpin):
                 pinstr = ob.name
     scene.physics_pin_object = pinstr
+
+@persistent
+def load_handler(scene):
+    global update_counter
+    update_counter = 100
 
 class PHYSICS_PT_pin_physics_object(bpy.types.Panel):
     bl_label = ""
@@ -92,6 +105,7 @@ def register():
     bpy.utils.register_class(PHYSICS_PT_pin_physics_object)
     bpy.types.Scene.physics_pin_object = bpy.props.StringProperty(description='Choose an object with physics cache',options={'HIDDEN','SKIP_SAVE'})
     bpy.types.Scene.physics_pin_object_list = bpy.props.CollectionProperty(type=bpy.types.PropertyGroup, options={'HIDDEN','SKIP_SAVE'})
+    bpy.app.handlers.load_post.append(load_handler)
     bpy.app.handlers.scene_update_post.append(upd_handler)
 
 def unregister():
@@ -100,6 +114,7 @@ def unregister():
     bpy.utils.unregister_class(PHYSICS_PT_pin_physics_object)
     del bpy.types.Scene.physics_pin_object
     del bpy.types.Scene.physics_pin_object_list
+    bpy.app.handlers.load_post.remove(load_handler)
     bpy.app.handlers.scene_update_post.remove(upd_handler)
 
 if __name__ == '__main__':
