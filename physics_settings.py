@@ -17,9 +17,17 @@ def get_group(name):
 
 def get_modifier(grp,obj,mod):
     try:
-        return bpy.data.groups[grp].objects[obj].modifiers[mod]
+        robj = bpy.data.groups[grp].objects[obj]
+        return robj.modifiers[mod], robj
     except KeyError:
-        return None
+        return None, None
+
+def get_image_node(mat,node):
+    try:
+        mat = bpy.data.materials[mat]
+        return mat.node_tree.nodes[node], mat
+    except KeyError:
+        return None, None
 
 def update_cache_range(cache, getopt):
     global scene_name
@@ -110,21 +118,21 @@ class ModifierHandler(BaseHandler):
         BaseHandler.__init__(self, (grp,obj,mod)+subargs)
 
     def do_refresh(self):
-        mod = get_modifier(*self.key[0:3])
+        mod,obj = get_modifier(*self.key[0:3])
         if mod is not None:
-            self.do_refresh_modifier(mod)
+            self.do_refresh_modifier(mod, obj)
         else:
             print('Could not find modifier: '+str(self.key))
 
-    def do_refresh_modifier(self, mod):
+    def do_refresh_modifier(self, mod, obj):
         pass
 
     def on_update_pre(self):
-        mod = get_modifier(*self.key[0:3])
+        mod,obj = get_modifier(*self.key[0:3])
         if mod is not None:
-            self.on_update_pre_modifier(mod)
+            self.on_update_pre_modifier(mod,obj)
 
-    def on_update_pre_modifier(self, mod):
+    def on_update_pre_modifier(self, mod, obj):
         pass
 
 class GroupHandler(BaseHandler):
@@ -142,14 +150,14 @@ class GroupHandler(BaseHandler):
                         tgt.objects.link(obj)
 
 class ClothHandler(ModifierHandler):
-    def on_update_pre_modifier(self, mod):
+    def on_update_pre_modifier(self, mod, obj):
         getopt = self.get_mapping()
         update_cache_range(mod.point_cache, getopt)
         update_group_assignment(mod.collision_settings, 'group', getopt('collision_group'))
         update_group_assignment(mod.settings.effector_weights, 'group', getopt('effector_group'))
 
-    def do_refresh_modifier(self, mod):
-        self.on_update_pre_modifier(mod)
+    def do_refresh_modifier(self, mod, obj):
+        self.on_update_pre_modifier(mod, obj)
 
         getopt = self.get_mapping()
 
@@ -179,14 +187,14 @@ class ClothHandler(ModifierHandler):
         update_effector_weights(mod.settings.effector_weights, getopt)
 
 class SoftbodyHandler(ModifierHandler):
-    def on_update_pre_modifier(self, mod):
+    def on_update_pre_modifier(self, mod, obj):
         getopt = self.get_mapping()
         update_cache_range(mod.point_cache, getopt)
         update_group_assignment(mod.settings, 'collision_group', getopt('collision_group'))
         update_group_assignment(mod.settings.effector_weights, 'group', getopt('effector_group'))
 
-    def do_refresh_modifier(self, mod):
-        self.on_update_pre_modifier(mod)
+    def do_refresh_modifier(self, mod, obj):
+        self.on_update_pre_modifier(mod, obj)
 
         getopt = self.get_mapping()
 
@@ -208,7 +216,7 @@ class SoftbodyHandler(ModifierHandler):
         update_effector_weights(mod.settings.effector_weights, getopt)
 
 class BrushHandler(ModifierHandler):
-    def do_refresh_modifier(self, mod):
+    def do_refresh_modifier(self, mod, obj):
         getopt = self.get_mapping()
 
         settings_fields = [
@@ -228,7 +236,7 @@ class CanvasHandler(ModifierHandler):
     def __init__(self,grp,obj,mod,surface):
         ModifierHandler.__init__(self,grp,obj,mod,surface)
 
-    def on_update_pre_modifier(self, mod):
+    def on_update_pre_modifier(self, mod, obj):
         getopt = self.get_mapping()
         surface = mod.canvas_settings.canvas_surfaces[self.key[3]]
 
@@ -236,7 +244,7 @@ class CanvasHandler(ModifierHandler):
         update_group_assignment(surface, 'brush_group', getopt('brush_group'))
         update_group_assignment(surface.effector_weights, 'group', getopt('effector_group'))
 
-    def do_refresh_modifier(self, mod):
+    def do_refresh_modifier(self, mod, obj):
         getopt = self.get_mapping()
         surface = mod.canvas_settings.canvas_surfaces[self.key[3]]
 
@@ -245,7 +253,7 @@ class CanvasHandler(ModifierHandler):
             'use_drying', 'dry_speed', 'color_dry_threshold', 'use_dry_log',
             'use_dissolve', 'dissolve_speed', 'use_dissolve_log',
             'brush_influence_scale', 'brush_radius_scale',
-            'image_output_path', 'image_fileformat', 'use_premultiply',
+            'image_fileformat', 'use_premultiply',
             'use_output_a', 'output_name_a', 'use_output_b', 'output_name_b',
             'init_color',
             'use_spread', 'spread_speed', 'color_spread_speed',
@@ -256,6 +264,60 @@ class CanvasHandler(ModifierHandler):
         for name in settings_fields:
             update_value_field(surface, name, getopt(name))
 
+        path = getopt('image_output_path')
+        if path is not None:
+            if obj.library is not None:
+                path = bpy.path.abspath(path)
+            surface.image_output_path = path
+
+        if getopt('activate_uv_map', False):
+            if surface.uv_layer in obj.data.uv_textures:
+                print('activating map '+surface.uv_layer)
+                obj.data.uv_textures[surface.uv_layer].active_render = True
+
+class ImageNodeHandler(BaseHandler):
+    def __init__(self,mat,node):
+        BaseHandler.__init__(self, (mat,node))
+
+    def on_update_pre(self):
+        global scene_name
+        scene = bpy.data.scenes[scene_name]
+
+        img,mat = get_image_node(*self.key)
+        if img is not None:
+            getopt = self.get_mapping()
+
+            end = getopt("frame_duration")
+            if end is None:
+                end = scene.frame_end
+            if img.image_user.frame_duration != end:
+                img.image_user.frame_duration = end
+
+    def do_refresh(self):
+        self.on_update_pre()
+
+        img,mat = get_image_node(*self.key)
+        if img is not None:
+            getopt = self.get_mapping()
+
+            path = getopt('filepath')
+            if path is not None:
+                fn = getopt('filename')
+                if fn is not None:
+                    path += '/'+fn
+                if mat.library is not None:
+                    path = bpy.path.abspath(path)
+                if img.image.filepath != path:
+                    img.image.filepath = path
+
+            user_fields = [
+                'frame_start', 'frame_offset', 'use_cyclic'
+            ]
+
+            for name in user_fields:
+                update_value_field(img.image_user, name, getopt(name))
+        else:
+            print('Could not find image node: '+self.key)
 
 @persistent
 def _on_scene_update_pre(usc):
