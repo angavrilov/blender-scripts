@@ -300,6 +300,13 @@ class ImageNodeHandler(BaseHandler):
         if img is not None:
             getopt = self.get_mapping()
 
+            user_fields = [
+                'frame_start', 'frame_offset', 'use_cyclic'
+            ]
+
+            for name in user_fields:
+                update_value_field(img.image_user, name, getopt(name))
+
             path = getopt('filepath')
             if path is not None:
                 fn = getopt('filename')
@@ -309,13 +316,7 @@ class ImageNodeHandler(BaseHandler):
                     path = bpy.path.abspath(path)
                 if img.image.filepath != path:
                     img.image.filepath = path
-
-            user_fields = [
-                'frame_start', 'frame_offset', 'use_cyclic'
-            ]
-
-            for name in user_fields:
-                update_value_field(img.image_user, name, getopt(name))
+                    img.image.reload()
         else:
             print('Could not find image node: '+self.key)
 
