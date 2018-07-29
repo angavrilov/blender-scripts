@@ -52,12 +52,13 @@ class WM_OT_paste_bone_length(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        val = try_parse_length(context.window_manager.clipboard)
-        return (val > 0) and get_length_bone(context)
+        return context.edit_bone is not None
 
     def execute(self, context):
-        bone = get_length_bone(context)
+        bone = context.edit_bone
         val = try_parse_length(context.window_manager.clipboard)
+        if val <= 0:
+            return {'CANCELLED'}
         bone.length = val
         return {'FINISHED'}
 
