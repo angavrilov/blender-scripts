@@ -264,10 +264,14 @@ def export_graph(obj, path):
                     "type": typestr, "name": cons.name, "port": portstr,
                     "cols": cols, "influence": influence_str
                 }
-                if hasattr(cons,'target') and cons.target == obj:
-                    out.write('\t"%(pid)s" -> "%(cid)s":"%(cport)s" [style="solid" color="blue" arrowtail="vee"];\n' % {
-                        'pid': cons.subtarget, 'cid': bone.name, 'cport': portstr
-                    })
+                targets = [cons]
+                if hasattr(cons, 'targets'):
+                    targets += list(cons.targets)
+                for tgt in targets:
+                    if hasattr(tgt,'target') and tgt.target == obj:
+                        out.write('\t"%(pid)s" -> "%(cid)s":"%(cport)s" [style="solid" color="blue" arrowtail="vee"];\n' % {
+                            'pid': tgt.subtarget, 'cid': bone.name, 'cport': portstr
+                        })
                     
             # bone html label
             label = (
@@ -299,4 +303,4 @@ def export_graph(obj, path):
     finally:
         out.close()
 
-export_graph(bpy.context.scene.objects.active,'rig.dot')
+export_graph(bpy.context.active_object,'rig.dot')
