@@ -1,8 +1,8 @@
 bl_info = {
     "name": "Deform Slave Armature",
     "author": "angavrilov",
-    "version": (1, 0),
-    "blender": (2, 79, 0),
+    "version": (1, 1),
+    "blender": (2, 80, 0),
     "location": "Search > Create Deform Slave Armature",
     "description": "Creates a copy of the armature deform bones bound to follow the original.",
     "warning": "",
@@ -50,21 +50,23 @@ class ARMATURE_OT_create_deform_slave(bpy.types.Operator):
         # Duplicate and select the armature
         new_arm = arm.copy()
         new_arm.data = arm.data.copy()
-        scene.objects.link(new_arm)
+        context.collection.objects.link(new_arm)
 
         for objt in scene.objects:
-            objt.select = False
-        new_arm.select = True
-        scene.objects.active = new_arm
+            objt.select_set(False)
+        new_arm.select_set(True)
+        context.view_layer.objects.active = new_arm
 
         bpy.ops.object.mode_set(mode='OBJECT')
 
         # Remove action
-        new_arm.animation_data.action = None
+        new_arm.animation_data_clear()
+        new_arm.data.animation_data_clear()
 
-        # Remove drivers
-        for drv in new_arm.animation_data.drivers:
-            new_arm.driver_remove(drv.data_path, drv.array_index)
+        # Remove constraints
+        for bone in new_arm.pose.bones:
+            for con in bone.constraints:
+                bone.constraints.remove(con)
 
         bpy.ops.object.mode_set(mode='EDIT')
 
@@ -82,9 +84,6 @@ class ARMATURE_OT_create_deform_slave(bpy.types.Operator):
 
         # Replace constraints with COPY_TRANSFORMS
         for bone in new_arm.pose.bones:
-            for con in bone.constraints:
-                bone.constraints.remove(con)
-
             bone.location = (0,0,0)
             bone.scale = (1,1,1)
             bone.rotation_quaternion = (1,0,0,0)
