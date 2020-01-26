@@ -30,6 +30,7 @@ class ARMATURE_OT_create_deform_slave(bpy.types.Operator):
     bl_options = {'UNDO','REGISTER'}
 
     only_needed = bpy.props.BoolProperty(name='Only Needed Bones', description='When a mesh is active, only include bones actually necessary to deform it')
+    with_bbones = bpy.props.BoolProperty(name='With B-Bones', default=False, description='Keep B-Bones in the generated armature')
 
     @classmethod
     def poll(cls, context):
@@ -72,12 +73,37 @@ class ARMATURE_OT_create_deform_slave(bpy.types.Operator):
 
         # Unparent all bones and disable B-Bones
         for bone in new_arm.data.edit_bones:
+            # Disable B-Bones unless needed
+            if not self.with_bbones:
+                bone.bbone_segments = 1
+            elif bone.parent and bone.use_connect:
+                # If keeping B-Bones, replace parenting with explicit handles
+                if bone.bbone_segments > 1 and bone.bbone_handle_type_start == 'AUTO':
+                    bone.bbone_handle_type_start = 'ABSOLUTE'
+                    bone.bbone_custom_handle_start = bone.parent
+
+                if bone.parent.bbone_segments > 1 and bone.parent.bbone_handle_type_end == 'AUTO':
+                    bone.parent.bbone_handle_type_end = 'ABSOLUTE'
+                    bone.parent.bbone_custom_handle_end = bone
+
             bone.parent = None
-            bone.bbone_segments = 1
 
         # Delete non-deform bones
+        include_set = set()
+
         for bone in new_arm.data.edit_bones:
-            if not bone.use_deform or (vgset and bone.name not in vgset):
+            if bone.use_deform and (not vgset or bone.name in vgset):
+                include_set.add(bone.name)
+
+                # Also include B-Bone handle bones
+                if bone.bbone_segments > 1:
+                    if bone.bbone_custom_handle_start:
+                        include_set.add(bone.bbone_custom_handle_start.name)
+                    if bone.bbone_custom_handle_end:
+                        include_set.add(bone.bbone_custom_handle_end.name)
+
+        for bone in new_arm.data.edit_bones:
+            if bone.name not in include_set:
                 new_arm.data.edit_bones.remove(bone)
 
         bpy.ops.object.mode_set(mode='OBJECT')
