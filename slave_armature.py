@@ -3,7 +3,7 @@ bl_info = {
     "author": "angavrilov",
     "version": (1, 1),
     "blender": (2, 80, 0),
-    "location": "Search > Create Deform Slave Armature",
+    "location": "Add > Armature > Deform Slave",
     "description": "Creates a copy of the armature deform bones bound to follow the original.",
     "warning": "",
     "wiki_url": "",
@@ -29,8 +29,8 @@ class ARMATURE_OT_create_deform_slave(bpy.types.Operator):
     bl_idname = "armature.create_deform_slave"
     bl_options = {'UNDO','REGISTER'}
 
-    only_needed = bpy.props.BoolProperty(name='Only Needed Bones', description='When a mesh is active, only include bones actually necessary to deform it')
-    with_bbones = bpy.props.BoolProperty(name='With B-Bones', default=False, description='Keep B-Bones in the generated armature')
+    only_needed: bpy.props.BoolProperty(name='Only Needed Bones', description='When a mesh is active, only include bones actually necessary to deform it')
+    with_bbones: bpy.props.BoolProperty(name='With B-Bones', default=False, description='Keep B-Bones in the generated armature')
 
     @classmethod
     def poll(cls, context):
@@ -125,11 +125,16 @@ class ARMATURE_OT_create_deform_slave(bpy.types.Operator):
 
         return {'FINISHED'}
 
+def add_menu(self, context):
+    self.layout.operator(ARMATURE_OT_create_deform_slave.bl_idname, icon='CON_ARMATURE', text='Deform Slave')
+
 def register():
     bpy.utils.register_class(ARMATURE_OT_create_deform_slave)
+    bpy.types.VIEW3D_MT_armature_add.append(add_menu)
 
 def unregister():
     bpy.utils.unregister_class(ARMATURE_OT_create_deform_slave)
+    bpy.types.VIEW3D_MT_armature_add.remove(add_menu)
 
 if __name__ == '__main__':
     register()
