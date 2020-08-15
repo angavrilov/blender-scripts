@@ -13,13 +13,23 @@ bl_info = {
 import bpy
 import collections
 
-from bpy.types import bpy_struct, bpy_prop_array, NodeSocketInterface, Node
+from bpy.types import bpy_struct, bpy_prop_array, NodeSocketInterface, Node, NodeTree
 
 def get_property_value(obj, name):
     value = getattr(obj, name, None)
     if isinstance(value, bpy_prop_array):
         value = tuple(value)
     return value
+
+def get_socket_id(slist, socket):
+    if sum(1 for s in slist if s.name == socket.name) > 1:
+        for i, s in enumerate(slist):
+            if s == socket:
+                return i
+        else:
+            raise KeyError
+    else:
+        return socket.name
 
 def generate_properties(prefix, obj, base_class, force={}, *, defaults=None):
     block_props = set(prop.identifier for prop in base_class.bl_rna.properties) - set(force)
@@ -30,6 +40,8 @@ def generate_properties(prefix, obj, base_class, force={}, *, defaults=None):
             cur_value = get_property_value(obj, prop.identifier)
 
             if isinstance(cur_value, bpy_struct):
+                if isinstance(cur_value, NodeTree):
+                    lines.append('%s.%s = bpy.data.node_groups[%r]' % (prefix, prop.identifier, cur_value.name))
                 continue
 
             if defaults is not None:
@@ -69,7 +81,7 @@ def generate_node(node, links_in):
         if socket.identifier not in links_in:
             val = get_property_value(socket, 'default_value')
             if val is not None:
-                lines.append('node.inputs[%r].default_value = %r' % (socket.name, val))
+                lines.append('node.inputs[%r].default_value = %r' % (get_socket_id(node.inputs, socket), val))
     return lines
 
 def generate_script(node_tree):
@@ -101,12 +113,13 @@ def generate_script(node_tree):
 
     for link in node_tree.links:
         lines.append('node_tree.links.new(nodes[%r].outputs[%r],nodes[%r].inputs[%r])' % (
-            link.from_node.name, link.from_socket.name, link.to_node.name, link.to_socket.name
+            link.from_node.name, get_socket_id(link.from_node.outputs, link.from_socket),
+            link.to_node.name, get_socket_id(link.to_node.inputs, link.to_socket)
         ))
 
     return [
         'import bpy',
-        'from mathutils import Vector, Color',
+        'from mathutils import Vector, Color, Euler',
         '',
         'def generate_nodes(node_tree):',
         *[('\t'+l if l else '') for l in lines],
