@@ -2,7 +2,7 @@ bl_info = {
     "name": "Nodes To Python",
     "author": "angavrilov",
     "version": (1, 0),
-    "blender": (2, 90, 0),
+    "blender": (2, 83, 0),
     "location": "Node > Generate Python Script",
     "description": "Generates a python script that creates the current node layout.",
     "warning": "",
